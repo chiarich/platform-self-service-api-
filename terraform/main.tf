@@ -160,6 +160,16 @@ resource "aws_apigatewayv2_stage" "default" {
   auto_deploy = true
 }
 
+resource "aws_sns_topic" "alerts" {
+  name = "${var.project_name}-${var.environment}-alerts"
+}
+
+resource "aws_sns_topic_subscription" "email_alerts" {
+  topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "email"
+  endpoint  = "Chiarich.sa@gmail.com"
+}
+
 # Allow API Gateway to invoke Lambda
 resource "aws_lambda_permission" "api" {
   statement_id  = "AllowAPIGatewayInvoke"
