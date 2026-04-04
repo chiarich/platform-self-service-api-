@@ -83,11 +83,8 @@ resource "aws_iam_policy" "lambda_policy" {
         Effect = "Allow"
         Action = [
           "dynamodb:PutItem",
-          "dynamodb:UpdateItem",
           "dynamodb:GetItem",
-          "dynamodb:Scan",
-          "dynamodb:DeleteItem",
-          "dynamodb:DescribeTable"
+          "dynamodb:Scan"
         ]
         Resource = aws_dynamodb_table.buckets.arn
       }
@@ -205,25 +202,6 @@ resource "aws_cloudwatch_metric_alarm" "lambda_duration" {
   namespace           = "AWS/Lambda"
   period              = 60
   statistic           = "Average"
-  treat_missing_data  = "notBreaching"
-
-  dimensions = {
-    FunctionName = aws_lambda_function.api.function_name
-  }
-
-  alarm_actions = [aws_sns_topic.alerts.arn]
-}
-
-resource "aws_cloudwatch_metric_alarm" "lambda_throttles" {
-  alarm_name          = "${var.project_name}-${var.environment}-lambda-throttles"
-  alarm_description   = "Alarm when Lambda throttles occur"
-  comparison_operator = "GreaterThanOrEqualToThreshold"
-  evaluation_periods  = 1
-  threshold           = 1
-  metric_name         = "Throttles"
-  namespace           = "AWS/Lambda"
-  period              = 60
-  statistic           = "Sum"
   treat_missing_data  = "notBreaching"
 
   dimensions = {
