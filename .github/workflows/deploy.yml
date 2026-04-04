@@ -23,7 +23,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11.0"
+          python-version: "3.11"
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
@@ -63,7 +63,11 @@ jobs:
 
       - name: Terraform init
         working-directory: terraform
-        run: terraform init
+        run: |
+          terraform init \
+            -backend-config="bucket=platform-api-terraform-state-richard-1" \
+            -backend-config="key=platform-self-service-api/dev/terraform.tfstate" \
+            -backend-config="region=us-east-1"
 
       - name: Terraform validate
         working-directory: terraform
