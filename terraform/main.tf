@@ -24,38 +24,6 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# Custom policy for S3 + DynamoDB
-resource "aws_iam_policy" "lambda_policy" {
-  name = "${var.project_name}-${var.environment}-lambda-policy"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:CreateBucket",
-          "s3:PutBucketTagging",
-          "s3:GetObject",
-          "s3:PutObject",
-          "dynamodb:PutItem",
-          "dynamodb:UpdateItem",
-          "dynamodb:GetItem",
-          "dynamodb:Scan",
-          "dynamodb:DeleteItem",
-          "dynamodb:DescribeTable"
-        ]
-        Resource = "*"
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "lambda_policy_attach" {
-  role       = aws_iam_role.lambda_role.name
-  policy_arn = aws_iam_policy.lambda_policy.arn
-}
-
 # ---------------------------
 # DynamoDB Table
 # ---------------------------
@@ -76,6 +44,63 @@ resource "aws_dynamodb_table" "buckets" {
 }
 
 # ---------------------------
+# SNS Topic for Alerts
+# ---------------------------
+resource "aws_sns_topic" "alerts" {
+  name = "${var.project_name}-${var.environment}-alerts"
+}
+
+# Optional email alerts
+# Replace with your real email if you want alerts
+# resource "aws_sns_topic_subscription" "email_alerts" {
+#   topic_arn = aws_sns_topic.alerts.arn
+#   protocol  = "email"
+#   endpoint  = "your-email@example.com"
+# }
+
+# ---------------------------
+# Custom policy for S3 + DynamoDB
+# ---------------------------
+resource "aws_iam_policy" "lambda_policy" {
+  name = "${var.project_name}-${var.environment}-lambda-policy"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowS3BucketProvisioning"
+        Effect = "Allow"
+        Action = [
+          "s3:CreateBucket",
+          "s3:PutBucketTagging",
+          "s3:HeadBucket",
+          "s3:GetBucketLocation"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowDynamoDBAccess"
+        Effect = "Allow"
+        Action = [
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:GetItem",
+          "dynamodb:Scan",
+          "dynamodb:DeleteItem",
+          "dynamodb:DescribeTable"
+        ]
+        Resource = aws_dynamodb_table.buckets.arn
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_policy_attach" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = aws_iam_policy.lambda_policy.arn
+}
+
+# ---------------------------
 # Lambda Function
 # ---------------------------
 resource "aws_lambda_function" "api" {
@@ -91,10 +116,15 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      ENVIRONMENT   = var.environment
-      TABLE_NAME    = aws_dynamodb_table.buckets.name
+      ENVIRONMENT = var.environment
+      TABLE_NAME  = aws_dynamodb_table.buckets.name
     }
   }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.lambda_basic,
+    aws_iam_role_policy_attachment.lambda_policy_attach
+  ]
 }
 
 # ---------------------------
@@ -113,7 +143,14 @@ resource "aws_apigatewayv2_integration" "lambda" {
   payload_format_version = "2.0"
 }
 
-resource "aws_apigatewayv2_route" "any" {
+resource "aws_apigatewayv2_route" "root" {
+  api_id    = aws_apigatewayv2_api.api.id
+  route_key = "ANY /"
+
+  target = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "proxy" {
   api_id    = aws_apigatewayv2_api.api.id
   route_key = "ANY /{proxy+}"
 
@@ -132,6 +169,68 @@ resource "aws_lambda_permission" "api" {
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.api.function_name
   principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.api.execution_arn}/*/*"
+}
+
+# ---------------------------
+# CloudWatch Alarms
+# ---------------------------
+resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
+  alarm_name          = "${var.project_name}-${var.environment}-lambda-errors"
+  alarm_description   = "Alarm when Lambda errors are greater than or equal to 1"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  threshold           = 1
+  metric_name         = "Errors"
+  namespace           = "AWS/Lambda"
+  period              = 60
+  statistic           = "Sum"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    FunctionName = aws_lambda_function.api.function_name
+  }
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+resource "aws_cloudwatch_metric_alarm" "lambda_duration" {
+  alarm_name          = "${var.project_name}-${var.environment}-lambda-duration"
+  alarm_description   = "Alarm when Lambda average duration is too high"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  threshold           = 8000
+  metric_name         = "Duration"
+  namespace           = "AWS/Lambda"
+  period              = 60
+  statistic           = "Average"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    FunctionName = aws_lambda_function.api.function_name
+  }
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+}
+
+resource "aws_cloudwatch_metric_alarm" "lambda_throttles" {
+  alarm_name          = "${var.project_name}-${var.environment}-lambda-throttles"
+  alarm_description   = "Alarm when Lambda throttles occur"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  threshold           = 1
+  metric_name         = "Throttles"
+  namespace           = "AWS/Lambda"
+  period              = 60
+  statistic           = "Sum"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    FunctionName = aws_lambda_function.api.function_name
+  }
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
 }
 
 # ---------------------------
@@ -147,4 +246,8 @@ output "dynamodb_table_name" {
 
 output "lambda_function_name" {
   value = aws_lambda_function.api.function_name
+}
+
+output "sns_topic_arn" {
+  value = aws_sns_topic.alerts.arn
 }
