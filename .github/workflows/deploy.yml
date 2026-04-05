@@ -1,0 +1,105 @@
+@'
+name: Deploy Platform Self-Service API
+
+on:
+  push:
+    branches:
+      - main
+      - improve/ai-workflow-and-security
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  terraform-and-deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_REGION: us-east-1
+      TF_WORKING_DIR: terraform
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install Python dependencies for Lambda package
+        run: |
+          python -m pip install --upgrade pip
+          rm -rf build dist
+          mkdir -p build dist
+          pip install \
+            --platform manylinux2014_x86_64 \
+            --implementation cp \
+            --python-version 3.11 \
+            --only-binary=:all: \
+            --target build \
+            fastapi mangum pydantic boto3
+
+      - name: Copy application files
+        run: |
+          mkdir -p build/app
+          cp -r app/* build/app/
+          cp app/main.py build/main.py
+
+      - name: Create Lambda deployment package
+        run: |
+          cd build
+          zip -r ../dist/lambda.zip .
+
+      - name: Terraform fmt check
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform fmt -check
+
+      - name: Terraform init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform init \
+            -backend-config="bucket=platform-api-terraform-state-richard-1" \
+            -backend-config="key=platform-self-service-api/dev/terraform.tfstate" \
+            -backend-config="region=us-east-1"
+
+      - name: Terraform validate
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform validate
+
+      - name: Import existing Lambda if already created
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          if aws lambda get-function --function-name platform-api-dev > /dev/null 2>&1; then
+            echo "Lambda already exists in AWS."
+
+            if ! terraform state list | grep -q "aws_lambda_function.api"; then
+              echo "Importing existing Lambda into Terraform state..."
+              terraform import aws_lambda_function.api platform-api-dev || true
+            else
+              echo "Lambda already exists in Terraform state."
+            fi
+          else
+            echo "Lambda does not exist yet."
+          fi
+
+      - name: Terraform plan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform plan -var="lambda_zip_path=../dist/lambda.zip"
+
+      - name: Terraform apply
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform apply -auto-approve -var="lambda_zip_path=../dist/lambda.zip"
+'@ | Set-Content -Path .github\workflows\deploy.yml -Encoding utf8
