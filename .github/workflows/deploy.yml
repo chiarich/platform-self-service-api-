@@ -1,4 +1,4 @@
-@'
+
 name: Deploy Platform Self-Service API
 
 on:
@@ -102,4 +102,4 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform apply -auto-approve -var="lambda_zip_path=../dist/lambda.zip"
-'@ | Set-Content -Path .github\workflows\deploy.yml -Encoding utf8
+ 
