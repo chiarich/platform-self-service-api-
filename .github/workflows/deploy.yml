@@ -1,4 +1,3 @@
-
 name: Deploy Platform Self-Service API
 
 on:
@@ -96,10 +95,102 @@ jobs:
 
       - name: Terraform plan
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform plan -var="lambda_zip_path=../dist/lambda.zip"
+        run: terraform plan -input=false -var="lambda_zip_path=../dist/lambda.zip"
 
       - name: Terraform apply
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform apply -auto-approve -var="lambda_zip_path=../dist/lambda.zip"
- 
+        run: terraform apply -auto-approve -input=false -var="lambda_zip_path=../dist/lambda.zip"
+
+      - name: Capture Terraform outputs
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        shell: bash
+        run: |
+          API_URL=$(terraform output -raw api_url)
+          echo "API_URL=$API_URL" >> $GITHUB_ENV
+          echo "Deployed API URL: $API_URL"
+
+      - name: Create API usage guide
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          mkdir -p release
+          cat > release/api-usage-guide.txt <<EOF
+          Platform Self-Service API - Usage Guide
+
+          Live API URL:
+          $API_URL
+
+          Available endpoints:
+          GET  $API_URL/
+          POST $API_URL/buckets
+          GET  $API_URL/buckets
+          GET  $API_URL/buckets/{bucket_id}
+          PUT  $API_URL/buckets/{bucket_id}
+          DELETE $API_URL/buckets/{bucket_id}
+
+          Example request body for creating a bucket:
+          {
+            "team_name": "platform-team",
+            "environment": "dev",
+            "bucket_name": "platform-team-dev-demo",
+            "purpose": "demo bucket creation"
+          }
+
+          Example curl command:
+          curl -X POST $API_URL/buckets \\
+            -H "Content-Type: application/json" \\
+            -d '{
+              "team_name": "platform-team",
+              "environment": "dev",
+              "bucket_name": "platform-team-dev-demo",
+              "purpose": "demo bucket creation"
+            }'
+
+          Example PowerShell:
+          \$body = @{
+            team_name   = "platform-team"
+            environment = "dev"
+            bucket_name = "platform-team-dev-demo"
+            purpose     = "demo bucket creation"
+          } | ConvertTo-Json
+
+          Invoke-RestMethod \`
+            -Uri "$API_URL/buckets" \`
+            -Method POST \`
+            -ContentType "application/json" \`
+            -Body \$body
+
+          Notes:
+          - If the bucket already exists, the API returns an error.
+          - Request metadata is stored in DynamoDB.
+          - Monitoring is handled through CloudWatch and SNS alerts.
+          EOF
+
+      - name: Upload API usage guide artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-api-usage-guide
+          path: release/api-usage-guide.txt
+
+      - name: Add deployment summary
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          {
+            echo "## Deployment Complete"
+            echo ""
+            echo "**API URL:** $API_URL"
+            echo ""
+            echo "### Endpoints"
+            echo "- \`GET $API_URL/\`"
+            echo "- \`POST $API_URL/buckets\`"
+            echo "- \`GET $API_URL/buckets\`"
+            echo "- \`GET $API_URL/buckets/{bucket_id}\`"
+            echo "- \`PUT $API_URL/buckets/{bucket_id}\`"
+            echo "- \`DELETE $API_URL/buckets/{bucket_id}\`"
+            echo ""
+            echo "The downloadable artifact contains usage instructions."
+          } >> $GITHUB_STEP_SUMMARY
