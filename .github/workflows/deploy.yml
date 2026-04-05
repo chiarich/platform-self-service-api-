@@ -107,8 +107,9 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         shell: bash
         run: |
-          API_URL=$(terraform output -raw api_url)
-          echo "API_URL=$API_URL" >> $GITHUB_ENV
+          set -euo pipefail
+          API_URL="$(terraform output -raw api_url)"
+          echo "API_URL=$API_URL" >> "$GITHUB_ENV"
           echo "Deployed API URL: $API_URL"
 
       - name: Create API usage guide
@@ -134,7 +135,6 @@ jobs:
           {
             "team_name": "platform-team",
             "environment": "dev",
-            "bucket_name": "platform-team-dev-demo",
             "purpose": "demo bucket creation"
           }
 
@@ -144,7 +144,6 @@ jobs:
             -d '{
               "team_name": "platform-team",
               "environment": "dev",
-              "bucket_name": "platform-team-dev-demo",
               "purpose": "demo bucket creation"
             }'
 
@@ -152,7 +151,6 @@ jobs:
           \$body = @{
             team_name   = "platform-team"
             environment = "dev"
-            bucket_name = "platform-team-dev-demo"
             purpose     = "demo bucket creation"
           } | ConvertTo-Json
 
@@ -163,6 +161,7 @@ jobs:
             -Body \$body
 
           Notes:
+          - The service generates the bucket name automatically.
           - If the bucket already exists, the API returns an error.
           - Request metadata is stored in DynamoDB.
           - Monitoring is handled through CloudWatch and SNS alerts.
@@ -191,6 +190,15 @@ jobs:
             echo "- \`GET $API_URL/buckets/{bucket_id}\`"
             echo "- \`PUT $API_URL/buckets/{bucket_id}\`"
             echo "- \`DELETE $API_URL/buckets/{bucket_id}\`"
+            echo ""
+            echo "### Example Create Bucket Request"
+            echo "\`\`\`json"
+            echo '{'
+            echo '  "team_name": "platform-team",'
+            echo '  "environment": "dev",'
+            echo '  "purpose": "demo bucket creation"'
+            echo '}'
+            echo "\`\`\`"
             echo ""
             echo "The downloadable artifact contains usage instructions."
           } >> $GITHUB_STEP_SUMMARY
