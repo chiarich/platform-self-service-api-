@@ -108,9 +108,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           API_URL="$(terraform output -raw api_url)"
+          CREATE_BUCKET_URL="$(terraform output -raw create_bucket_url)"
+          BUCKETS_URL="$(terraform output -raw buckets_url)"
+          LAMBDA_FUNCTION_NAME="$(terraform output -raw lambda_function_name)"
+          SNS_TOPIC_ARN="$(terraform output -raw sns_topic_arn)"
+
           echo "API_URL=$API_URL" >> "$GITHUB_ENV"
-          echo "Deployed API URL: $API_URL"
+          echo "CREATE_BUCKET_URL=$CREATE_BUCKET_URL" >> "$GITHUB_ENV"
+          echo "BUCKETS_URL=$BUCKETS_URL" >> "$GITHUB_ENV"
+          echo "LAMBDA_FUNCTION_NAME=$LAMBDA_FUNCTION_NAME" >> "$GITHUB_ENV"
+          echo "SNS_TOPIC_ARN=$SNS_TOPIC_ARN" >> "$GITHUB_ENV"
+
+          echo "Base API URL: $API_URL"
+          echo "Create Bucket URL: $CREATE_BUCKET_URL"
+          echo "Buckets URL: $BUCKETS_URL"
+          echo "Lambda Function Name: $LAMBDA_FUNCTION_NAME"
+          echo "SNS Topic ARN: $SNS_TOPIC_ARN"
 
       - name: Create API usage guide
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -120,16 +135,28 @@ jobs:
           cat > release/api-usage-guide.txt <<EOF
           Platform Self-Service API - Usage Guide
 
-          Live API URL:
+          Base API URL:
           $API_URL
+
+          Create Bucket Endpoint:
+          $CREATE_BUCKET_URL
+
+          Buckets Endpoint:
+          $BUCKETS_URL
+
+          Lambda Function Name:
+          $LAMBDA_FUNCTION_NAME
+
+          SNS Topic ARN:
+          $SNS_TOPIC_ARN
 
           Available endpoints:
           GET  $API_URL/
-          POST $API_URL/buckets
-          GET  $API_URL/buckets
-          GET  $API_URL/buckets/{bucket_id}
-          PUT  $API_URL/buckets/{bucket_id}
-          DELETE $API_URL/buckets/{bucket_id}
+          POST $CREATE_BUCKET_URL
+          GET  $BUCKETS_URL
+          GET  $BUCKETS_URL/{bucket_id}
+          PUT  $BUCKETS_URL/{bucket_id}
+          DELETE $BUCKETS_URL/{bucket_id}
 
           Example request body for creating a bucket:
           {
@@ -139,7 +166,7 @@ jobs:
           }
 
           Example curl command:
-          curl -X POST $API_URL/buckets \\
+          curl -X POST $CREATE_BUCKET_URL \\
             -H "Content-Type: application/json" \\
             -d '{
               "team_name": "platform-team",
@@ -155,7 +182,7 @@ jobs:
           } | ConvertTo-Json
 
           Invoke-RestMethod \`
-            -Uri "$API_URL/buckets" \`
+            -Uri "$CREATE_BUCKET_URL" \`
             -Method POST \`
             -ContentType "application/json" \`
             -Body \$body
@@ -181,15 +208,15 @@ jobs:
           {
             echo "## Deployment Complete"
             echo ""
-            echo "**API URL:** $API_URL"
+            echo "**Base API URL:** $API_URL"
             echo ""
-            echo "### Endpoints"
-            echo "- \`GET $API_URL/\`"
-            echo "- \`POST $API_URL/buckets\`"
-            echo "- \`GET $API_URL/buckets\`"
-            echo "- \`GET $API_URL/buckets/{bucket_id}\`"
-            echo "- \`PUT $API_URL/buckets/{bucket_id}\`"
-            echo "- \`DELETE $API_URL/buckets/{bucket_id}\`"
+            echo "**Create Bucket URL:** $CREATE_BUCKET_URL"
+            echo ""
+            echo "**Buckets URL:** $BUCKETS_URL"
+            echo ""
+            echo "**Lambda Function Name:** $LAMBDA_FUNCTION_NAME"
+            echo ""
+            echo "**SNS Topic ARN:** $SNS_TOPIC_ARN"
             echo ""
             echo "### Example Create Bucket Request"
             echo "\`\`\`json"
@@ -200,5 +227,16 @@ jobs:
             echo '}'
             echo "\`\`\`"
             echo ""
+            echo "### Quick Test"
+            echo "\`\`\`bash"
+            echo "curl -X POST $CREATE_BUCKET_URL \\"
+            echo '  -H "Content-Type: application/json" \\'
+            echo "  -d '{"
+            echo '    "team_name": "platform-team",'
+            echo '    "environment": "dev",'
+            echo '    "purpose": "demo bucket creation"'
+            echo "  }'"
+            echo "\`\`\`"
+            echo ""
             echo "The downloadable artifact contains usage instructions."
-          } >> $GITHUB_STEP_SUMMARY
+          } >> "$GITHUB_STEP_SUMMARY"
