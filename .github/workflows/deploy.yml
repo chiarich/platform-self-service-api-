@@ -112,18 +112,21 @@ jobs:
           API_URL="$(terraform output -raw api_url)"
           CREATE_BUCKET_URL="$(terraform output -raw create_bucket_url)"
           BUCKETS_URL="$(terraform output -raw buckets_url)"
+          DYNAMODB_TABLE_NAME="$(terraform output -raw dynamodb_table_name)"
           LAMBDA_FUNCTION_NAME="$(terraform output -raw lambda_function_name)"
           SNS_TOPIC_ARN="$(terraform output -raw sns_topic_arn)"
 
           echo "API_URL=$API_URL" >> "$GITHUB_ENV"
           echo "CREATE_BUCKET_URL=$CREATE_BUCKET_URL" >> "$GITHUB_ENV"
           echo "BUCKETS_URL=$BUCKETS_URL" >> "$GITHUB_ENV"
+          echo "DYNAMODB_TABLE_NAME=$DYNAMODB_TABLE_NAME" >> "$GITHUB_ENV"
           echo "LAMBDA_FUNCTION_NAME=$LAMBDA_FUNCTION_NAME" >> "$GITHUB_ENV"
           echo "SNS_TOPIC_ARN=$SNS_TOPIC_ARN" >> "$GITHUB_ENV"
 
           echo "Base API URL: $API_URL"
           echo "Create Bucket URL: $CREATE_BUCKET_URL"
           echo "Buckets URL: $BUCKETS_URL"
+          echo "DynamoDB Table Name: $DYNAMODB_TABLE_NAME"
           echo "Lambda Function Name: $LAMBDA_FUNCTION_NAME"
           echo "SNS Topic ARN: $SNS_TOPIC_ARN"
 
@@ -144,6 +147,9 @@ jobs:
           Buckets Endpoint:
           $BUCKETS_URL
 
+          DynamoDB Table Name:
+          $DYNAMODB_TABLE_NAME
+
           Lambda Function Name:
           $LAMBDA_FUNCTION_NAME
 
@@ -162,6 +168,7 @@ jobs:
           {
             "team_name": "platform-team",
             "environment": "dev",
+            "bucket_name": "platform-test-bucket-for-rich",
             "purpose": "demo bucket creation"
           }
 
@@ -171,6 +178,7 @@ jobs:
             -d '{
               "team_name": "platform-team",
               "environment": "dev",
+              "bucket_name": "platform-test-bucket-for-rich",
               "purpose": "demo bucket creation"
             }'
 
@@ -178,6 +186,7 @@ jobs:
           \$body = @{
             team_name   = "platform-team"
             environment = "dev"
+            bucket_name = "platform-test-bucket-for-rich"
             purpose     = "demo bucket creation"
           } | ConvertTo-Json
 
@@ -188,7 +197,9 @@ jobs:
             -Body \$body
 
           Notes:
-          - The service generates the bucket name automatically.
+          - bucket_name must be globally unique in S3 and should be lowercase.
+          - {bucket_id} refers to the internal DynamoDB request record ID, not the bucket name.
+          - To retrieve or delete a request, first call GET /buckets and copy the returned id.
           - If the bucket already exists, the API returns an error.
           - Request metadata is stored in DynamoDB.
           - Monitoring is handled through CloudWatch and SNS alerts.
@@ -214,6 +225,8 @@ jobs:
             echo ""
             echo "**Buckets URL:** $BUCKETS_URL"
             echo ""
+            echo "**DynamoDB Table Name:** $DYNAMODB_TABLE_NAME"
+            echo ""
             echo "**Lambda Function Name:** $LAMBDA_FUNCTION_NAME"
             echo ""
             echo "**SNS Topic ARN:** $SNS_TOPIC_ARN"
@@ -223,20 +236,15 @@ jobs:
             echo '{'
             echo '  "team_name": "platform-team",'
             echo '  "environment": "dev",'
+            echo '  "bucket_name": "platform-test-bucket-for-rich",'
             echo '  "purpose": "demo bucket creation"'
             echo '}'
             echo "\`\`\`"
             echo ""
-            echo "### Quick Test"
-            echo "\`\`\`bash"
-            echo "curl -X POST $CREATE_BUCKET_URL \\"
-            echo '  -H "Content-Type: application/json" \\'
-            echo "  -d '{"
-            echo '    "team_name": "platform-team",'
-            echo '    "environment": "dev",'
-            echo '    "purpose": "demo bucket creation"'
-            echo "  }'"
-            echo "\`\`\`"
+            echo "### Notes"
+            echo "- bucket_name must be globally unique and lowercase."
+            echo "- {bucket_id} is the internal DynamoDB request record ID."
+            echo "- Use GET /buckets first to retrieve the correct id for GET/DELETE by id."
             echo ""
             echo "The downloadable artifact contains usage instructions."
           } >> "$GITHUB_STEP_SUMMARY"
