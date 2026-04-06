@@ -216,22 +216,3 @@ resource "aws_cloudwatch_metric_alarm" "lambda_duration" {
 
   alarm_actions = [aws_sns_topic.alerts.arn]
 }
-
-# ---------------------------
-# Outputs
-# ---------------------------
-output "api_url" {
-  value = aws_apigatewayv2_api.api.api_endpoint
-}
-
-output "dynamodb_table_name" {
-  value = aws_dynamodb_table.buckets.name
-}
-
-output "lambda_function_name" {
-  value = aws_lambda_function.api.function_name
-}
-
-output "sns_topic_arn" {
-  value = aws_sns_topic.alerts.arn
-}
