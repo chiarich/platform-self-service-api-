@@ -4,6 +4,10 @@ This project is a cloud-native Internal Developer Platform (IDP) that enables de
 
 It demonstrates end-to-end platform engineering using AWS, serverless architecture, infrastructure as code, CI/CD, observability, and an AI-assisted development workflow.
 
+## Challenge Alignment
+
+This project addresses the platform engineering challenge by delivering a self-service API for S3 bucket lifecycle management, implemented with Terraform-managed infrastructure, CI/CD automation, observability, and a documented AI-assisted development workflow.
+
 ---
 
 ## 🎯 Project Goal
@@ -298,6 +302,8 @@ Verify:
 
 ## 📄 Assignment Mapping
 
+## Challenge Alignment
+
 ### ✅ AI Workflow
 
 * documented in `AI_WORKFLOW.md`
@@ -360,7 +366,3 @@ Richard Chia Ndum
 ## ⭐ Notes
 
 This project simulates a real-world internal platform where developers can safely self-service infrastructure without direct cloud access.
-
-## Challenge Alignment
-
-This project addresses the platform engineering challenge by delivering a self-service API for S3 bucket lifecycle management, implemented with Terraform-managed infrastructure, CI/CD automation, observability, and a documented AI-assisted development workflow.

@@ -1,4 +1,15 @@
 # ---------------------------
+# Common Tags
+# ---------------------------
+locals {
+  common_tags = {
+    Project     = var.project_name
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+  }
+}
+
+# ---------------------------
 # IAM Role for Lambda
 # ---------------------------
 resource "aws_iam_role" "lambda_role" {
@@ -16,9 +27,10 @@ resource "aws_iam_role" "lambda_role" {
       }
     ]
   })
+
+  tags = local.common_tags
 }
 
-# Basic Lambda logging policy
 resource "aws_iam_role_policy_attachment" "lambda_basic" {
   role       = aws_iam_role.lambda_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
@@ -37,10 +49,7 @@ resource "aws_dynamodb_table" "buckets" {
     type = "S"
   }
 
-  tags = {
-    Project     = var.project_name
-    Environment = var.environment
-  }
+  tags = local.common_tags
 }
 
 # ---------------------------
@@ -48,16 +57,17 @@ resource "aws_dynamodb_table" "buckets" {
 # ---------------------------
 resource "aws_sns_topic" "alerts" {
   name = "${var.project_name}-${var.environment}-alerts"
+  tags = local.common_tags
 }
 
 resource "aws_sns_topic_subscription" "email_alerts" {
   topic_arn = aws_sns_topic.alerts.arn
   protocol  = "email"
-  endpoint  = "Chiarich.sa@gmail.com"
+  endpoint  = var.alert_email
 }
 
 # ---------------------------
-# Custom policy for S3 + DynamoDB
+# IAM Policy
 # ---------------------------
 resource "aws_iam_policy" "lambda_policy" {
   name = "${var.project_name}-${var.environment}-lambda-policy"
@@ -65,19 +75,21 @@ resource "aws_iam_policy" "lambda_policy" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
+
+      # NOTE: CreateBucket requires "*"
       {
         Sid    = "AllowS3CreateBucket"
         Effect = "Allow"
-        Action = [
-          "s3:CreateBucket"
-        ]
+        Action = ["s3:CreateBucket"]
         Resource = "*"
       },
+
       {
-        Sid    = "AllowS3ManageProjectBuckets"
+        Sid    = "AllowManageProjectBuckets"
         Effect = "Allow"
         Action = [
           "s3:PutBucketTagging",
+          "s3:GetBucketTagging",
           "s3:HeadBucket",
           "s3:GetBucketLocation",
           "s3:ListBucket",
@@ -87,16 +99,19 @@ resource "aws_iam_policy" "lambda_policy" {
           "arn:aws:s3:::${var.project_name}-${var.environment}-*"
         ]
       },
+
       {
-        Sid    = "AllowS3ManageProjectBucketObjects"
+        Sid    = "AllowManageBucketObjects"
         Effect = "Allow"
         Action = [
-          "s3:DeleteObject"
+          "s3:DeleteObject",
+          "s3:AbortMultipartUpload"
         ]
         Resource = [
           "arn:aws:s3:::${var.project_name}-${var.environment}-*/*"
         ]
       },
+
       {
         Sid    = "AllowDynamoDBAccess"
         Effect = "Allow"
@@ -111,11 +126,22 @@ resource "aws_iam_policy" "lambda_policy" {
       }
     ]
   })
+
+  tags = local.common_tags
 }
 
 resource "aws_iam_role_policy_attachment" "lambda_policy_attach" {
   role       = aws_iam_role.lambda_role.name
   policy_arn = aws_iam_policy.lambda_policy.arn
+}
+
+# ---------------------------
+# CloudWatch Log Group
+# ---------------------------
+resource "aws_cloudwatch_log_group" "lambda" {
+  name              = "/aws/lambda/${var.project_name}-${var.environment}"
+  retention_in_days = var.log_retention_in_days
+  tags              = local.common_tags
 }
 
 # ---------------------------
@@ -140,9 +166,12 @@ resource "aws_lambda_function" "api" {
   }
 
   depends_on = [
+    aws_cloudwatch_log_group.lambda,
     aws_iam_role_policy_attachment.lambda_basic,
     aws_iam_role_policy_attachment.lambda_policy_attach
   ]
+
+  tags = local.common_tags
 }
 
 # ---------------------------
@@ -151,6 +180,7 @@ resource "aws_lambda_function" "api" {
 resource "aws_apigatewayv2_api" "api" {
   name          = "${var.project_name}-${var.environment}"
   protocol_type = "HTTP"
+  tags          = local.common_tags
 }
 
 resource "aws_apigatewayv2_integration" "lambda" {
@@ -164,24 +194,25 @@ resource "aws_apigatewayv2_integration" "lambda" {
 resource "aws_apigatewayv2_route" "root" {
   api_id    = aws_apigatewayv2_api.api.id
   route_key = "ANY /"
-
-  target = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
 resource "aws_apigatewayv2_route" "proxy" {
   api_id    = aws_apigatewayv2_api.api.id
   route_key = "ANY /{proxy+}"
-
-  target = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
 resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.api.id
   name        = "$default"
   auto_deploy = true
+  tags        = local.common_tags
 }
 
-# Allow API Gateway to invoke Lambda
+# ---------------------------
+# Lambda Permission
+# ---------------------------
 resource "aws_lambda_permission" "api" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
@@ -195,7 +226,6 @@ resource "aws_lambda_permission" "api" {
 # ---------------------------
 resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
   alarm_name          = "${var.project_name}-${var.environment}-lambda-errors"
-  alarm_description   = "Alarm when Lambda errors are greater than or equal to 1"
   comparison_operator = "GreaterThanOrEqualToThreshold"
   evaluation_periods  = 1
   threshold           = 1
@@ -203,7 +233,6 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
   namespace           = "AWS/Lambda"
   period              = 60
   statistic           = "Sum"
-  treat_missing_data  = "notBreaching"
 
   dimensions = {
     FunctionName = aws_lambda_function.api.function_name
@@ -211,11 +240,11 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
 
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]
+  tags          = local.common_tags
 }
 
 resource "aws_cloudwatch_metric_alarm" "lambda_duration" {
   alarm_name          = "${var.project_name}-${var.environment}-lambda-duration"
-  alarm_description   = "Alarm when Lambda average duration is too high"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 2
   threshold           = 8000
@@ -223,11 +252,11 @@ resource "aws_cloudwatch_metric_alarm" "lambda_duration" {
   namespace           = "AWS/Lambda"
   period              = 60
   statistic           = "Average"
-  treat_missing_data  = "notBreaching"
 
   dimensions = {
     FunctionName = aws_lambda_function.api.function_name
   }
 
   alarm_actions = [aws_sns_topic.alerts.arn]
+  tags          = local.common_tags
 }
