@@ -78,9 +78,9 @@ resource "aws_iam_policy" "lambda_policy" {
 
       # NOTE: CreateBucket requires "*"
       {
-        Sid    = "AllowS3CreateBucket"
-        Effect = "Allow"
-        Action = ["s3:CreateBucket"]
+        Sid      = "AllowS3CreateBucket"
+        Effect   = "Allow"
+        Action   = ["s3:CreateBucket"]
         Resource = "*"
       },
 
