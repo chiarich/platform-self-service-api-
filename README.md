@@ -7,7 +7,6 @@ It demonstrates end-to-end platform engineering using AWS, serverless architectu
 ## Challenge Alignment
 
 This project addresses the platform engineering challenge by delivering a self-service API for S3 bucket lifecycle management, implemented with Terraform-managed infrastructure, CI/CD automation, observability, and a documented AI-assisted development workflow.
-
 ---
 
 ## 🎯 Project Goal
