@@ -3,19 +3,27 @@
 __pycache__/
 *.pyc
 
+# Build artifacts
+build/
+dist/
+temp_check/
+terraform/build/
+
 # Terraform
 .terraform/
+terraform/.terraform/
 *.tfstate
 *.tfstate.*
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform.tfstate
+terraform.tfstate.backup
+tfplan
+terraform/tfplan
 crash.log
 override.tf
 override.tf.json
 *.tfvars
-.terraform.lock.hcl
-
-# Build
-dist/
-build/
 
 # OS
 .DS_Store
