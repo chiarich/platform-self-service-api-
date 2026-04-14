@@ -3,13 +3,13 @@ import re
 
 from pydantic import BaseModel, Field, field_validator
 
+
 class BucketRequest(BaseModel):
     team_name: str = Field(..., min_length=2, max_length=30)
     environment: Literal["dev", "staging", "prod"]
     bucket_name: str = Field(..., min_length=3, max_length=63)
     purpose: str = Field(..., min_length=5, max_length=200)
 
-    # Validators
     @field_validator("team_name")
     @classmethod
     def validate_team_name(cls, value: str) -> str:

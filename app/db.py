@@ -1,5 +1,8 @@
-import boto3
 import os
+import boto3
 
-dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
-table = dynamodb.Table(os.getenv("TABLE_NAME", "platform-api-dev-buckets"))
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+TABLE_NAME = os.getenv("TABLE_NAME", "platform-api-dev-buckets")
+
+dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
+table = dynamodb.Table(TABLE_NAME)

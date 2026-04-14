@@ -27,6 +27,40 @@ def create_s3_bucket(bucket_name: str, region: str = "us-east-1") -> None:
         )
 
 
+def empty_s3_bucket(bucket_name: str) -> None:
+    paginator = s3.get_paginator("list_objects_v2")
+    objects_to_delete = []
+
+    for page in paginator.paginate(Bucket=bucket_name):
+        contents = page.get("Contents", [])
+        for obj in contents:
+            objects_to_delete.append({"Key": obj["Key"]})
+
+            if len(objects_to_delete) == 1000:
+                s3.delete_objects(
+                    Bucket=bucket_name,
+                    Delete={"Objects": objects_to_delete, "Quiet": True},
+                )
+                objects_to_delete = []
+
+    if objects_to_delete:
+        s3.delete_objects(
+            Bucket=bucket_name,
+            Delete={"Objects": objects_to_delete, "Quiet": True},
+        )
+
+
+def delete_s3_bucket(bucket_name: str) -> None:
+    try:
+        empty_s3_bucket(bucket_name)
+        s3.delete_bucket(Bucket=bucket_name)
+    except ClientError as exc:
+        error_code = str(exc.response.get("Error", {}).get("Code", ""))
+        if error_code in ["404", "NoSuchBucket", "NotFound"]:
+            return
+        raise
+
+
 @app.get("/")
 def root():
     return {"message": "Platform Self Service API is running"}
@@ -53,7 +87,6 @@ def create_bucket(bucket: BucketRequest):
     }
 
     try:
-        # Check if bucket already exists in S3
         try:
             s3.head_bucket(Bucket=bucket.bucket_name)
             raise HTTPException(
@@ -63,17 +96,13 @@ def create_bucket(bucket: BucketRequest):
         except ClientError as e:
             error_code = str(e.response.get("Error", {}).get("Code", ""))
 
-            # These mean "not found" / safe to continue
             if error_code not in ["404", "NoSuchBucket", "NotFound"]:
                 raise HTTPException(
                     status_code=409,
                     detail=f"Bucket '{bucket.bucket_name}' already exists or is not available",
                 )
 
-        # Create the bucket
         create_s3_bucket(bucket.bucket_name)
-
-        # Save request metadata to DynamoDB
         table.put_item(Item=item)
 
         return BucketResponse(
@@ -121,6 +150,8 @@ def get_bucket(bucket_id: str):
             raise HTTPException(status_code=404, detail="Bucket not found")
 
         return item
+    except HTTPException:
+        raise
     except ClientError as exc:
         raise HTTPException(
             status_code=500,
@@ -163,6 +194,8 @@ def update_bucket(bucket_id: str, bucket: BucketRequest):
             "message": "Bucket updated successfully",
             "id": bucket_id,
         }
+    except HTTPException:
+        raise
     except ClientError as exc:
         raise HTTPException(
             status_code=500,
@@ -174,16 +207,32 @@ def update_bucket(bucket_id: str, bucket: BucketRequest):
 def delete_bucket(bucket_id: str):
     try:
         response = table.get_item(Key={"id": bucket_id})
-        if "Item" not in response:
+        item = response.get("Item")
+
+        if not item:
             raise HTTPException(status_code=404, detail="Bucket not found")
 
+        bucket_name = item["bucket_name"]
+
+        delete_s3_bucket(bucket_name)
         table.delete_item(Key={"id": bucket_id})
 
-        return {"message": "Bucket deleted successfully", "id": bucket_id}
+        return {
+            "message": "Bucket and record deleted successfully",
+            "id": bucket_id,
+            "bucket_name": bucket_name,
+        }
+    except HTTPException:
+        raise
     except ClientError as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to delete bucket request: {exc.response['Error']['Message']}",
+            detail=f"Failed to delete bucket and record: {exc.response['Error']['Message']}",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error while deleting bucket and record: {str(exc)}",
         ) from exc
 
 

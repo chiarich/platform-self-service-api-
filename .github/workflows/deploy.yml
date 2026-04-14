@@ -168,7 +168,7 @@ jobs:
           {
             "team_name": "platform-team",
             "environment": "dev",
-            "bucket_name": "platform-test-bucket-for-rich",
+            ""bucket_name": "platform-api-dev-demo-bucket"",
             "purpose": "demo bucket creation"
           }
 
@@ -178,7 +178,7 @@ jobs:
             -d '{
               "team_name": "platform-team",
               "environment": "dev",
-              "bucket_name": "platform-test-bucket-for-rich",
+              ""bucket_name": "platform-api-dev-demo-bucket"",
               "purpose": "demo bucket creation"
             }'
 
@@ -236,7 +236,7 @@ jobs:
             echo '{'
             echo '  "team_name": "platform-team",'
             echo '  "environment": "dev",'
-            echo '  "bucket_name": "platform-test-bucket-for-rich",'
+            echo '  ""bucket_name": "platform-api-dev-demo-bucket"",'
             echo '  "purpose": "demo bucket creation"'
             echo '}'
             echo "\`\`\`"

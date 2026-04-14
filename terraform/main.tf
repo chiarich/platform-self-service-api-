@@ -50,13 +50,11 @@ resource "aws_sns_topic" "alerts" {
   name = "${var.project_name}-${var.environment}-alerts"
 }
 
-# Optional email alerts
-# Replace with your real email if you want alerts
-# resource "aws_sns_topic_subscription" "email_alerts" {
-#   topic_arn = aws_sns_topic.alerts.arn
-#   protocol  = "email"
-#   endpoint  = "your-email@example.com"
-# }
+resource "aws_sns_topic_subscription" "email_alerts" {
+  topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "email"
+  endpoint  = "Chiarich.sa@gmail.com"
+}
 
 # ---------------------------
 # Custom policy for S3 + DynamoDB
@@ -68,15 +66,36 @@ resource "aws_iam_policy" "lambda_policy" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "AllowS3BucketProvisioning"
+        Sid    = "AllowS3CreateBucket"
         Effect = "Allow"
         Action = [
-          "s3:CreateBucket",
-          "s3:PutBucketTagging",
-          "s3:HeadBucket",
-          "s3:GetBucketLocation"
+          "s3:CreateBucket"
         ]
         Resource = "*"
+      },
+      {
+        Sid    = "AllowS3ManageProjectBuckets"
+        Effect = "Allow"
+        Action = [
+          "s3:PutBucketTagging",
+          "s3:HeadBucket",
+          "s3:GetBucketLocation",
+          "s3:ListBucket",
+          "s3:DeleteBucket"
+        ]
+        Resource = [
+          "arn:aws:s3:::${var.project_name}-${var.environment}-*"
+        ]
+      },
+      {
+        Sid    = "AllowS3ManageProjectBucketObjects"
+        Effect = "Allow"
+        Action = [
+          "s3:DeleteObject"
+        ]
+        Resource = [
+          "arn:aws:s3:::${var.project_name}-${var.environment}-*/*"
+        ]
       },
       {
         Sid    = "AllowDynamoDBAccess"
@@ -84,7 +103,9 @@ resource "aws_iam_policy" "lambda_policy" {
         Action = [
           "dynamodb:PutItem",
           "dynamodb:GetItem",
-          "dynamodb:Scan"
+          "dynamodb:Scan",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem"
         ]
         Resource = aws_dynamodb_table.buckets.arn
       }
@@ -158,12 +179,6 @@ resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.api.id
   name        = "$default"
   auto_deploy = true
-}
-
-resource "aws_sns_topic_subscription" "email_alerts" {
-  topic_arn = aws_sns_topic.alerts.arn
-  protocol  = "email"
-  endpoint  = "Chiarich.sa@gmail.com"
 }
 
 # Allow API Gateway to invoke Lambda
