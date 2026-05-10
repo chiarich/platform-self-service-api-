@@ -1,7 +1,7 @@
 from typing import Literal
 import re
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class BucketRequest(BaseModel):
@@ -29,6 +29,18 @@ class BucketRequest(BaseModel):
         if ".." in value or ".-" in value or "-." in value:
             raise ValueError("bucket_name contains invalid adjacent characters")
         return value
+
+    @property
+    def final_bucket_name(self) -> str:
+        return f"{self.team_name}-{self.environment}-{self.bucket_name}"
+
+    @model_validator(mode="after")
+    def validate_combined_length(self) -> "BucketRequest":
+        if len(self.final_bucket_name) > 63:
+            raise ValueError(
+                f"Combined bucket name '{self.final_bucket_name}' exceeds 63 characters limit"
+            )
+        return self
 
 
 class BucketResponse(BaseModel):
