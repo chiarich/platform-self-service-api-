@@ -301,6 +301,8 @@ Verify:
 
 ## 📄 Assignment Mapping
 
+## Challenge Alignment
+
 ### ✅ AI Workflow
 
 * documented in `AI_WORKFLOW.md`

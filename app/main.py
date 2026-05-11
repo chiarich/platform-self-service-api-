@@ -1,14 +1,14 @@
 import uuid
-import boto3
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from mangum import Mangum
 from botocore.exceptions import ClientError
 
 from app.models import BucketRequest, BucketResponse
 from app.db import table
+from app.aws_clients import get_s3_client
 
-s3 = boto3.client("s3", region_name="us-east-1")
+s3 = get_s3_client()
 
 app = FastAPI(
     title="Platform Self-Service API",
@@ -28,14 +28,23 @@ def create_s3_bucket(bucket_name: str, region: str = "us-east-1") -> None:
 
 
 def empty_s3_bucket(bucket_name: str) -> None:
-    paginator = s3.get_paginator("list_objects_v2")
+    paginator = s3.get_paginator("list_object_versions")
     objects_to_delete = []
 
     for page in paginator.paginate(Bucket=bucket_name):
-        contents = page.get("Contents", [])
-        for obj in contents:
-            objects_to_delete.append({"Key": obj["Key"]})
-
+        versions = page.get("Versions", [])
+        for obj in versions:
+            objects_to_delete.append({"Key": obj["Key"], "VersionId": obj["VersionId"]})
+            if len(objects_to_delete) == 1000:
+                s3.delete_objects(
+                    Bucket=bucket_name,
+                    Delete={"Objects": objects_to_delete, "Quiet": True},
+                )
+                objects_to_delete = []
+                
+        delete_markers = page.get("DeleteMarkers", [])
+        for obj in delete_markers:
+            objects_to_delete.append({"Key": obj["Key"], "VersionId": obj["VersionId"]})
             if len(objects_to_delete) == 1000:
                 s3.delete_objects(
                     Bucket=bucket_name,
@@ -74,13 +83,14 @@ def health():
 @app.post("/buckets", response_model=BucketResponse)
 def create_bucket(bucket: BucketRequest):
     request_id = str(uuid.uuid4())
+    final_name = bucket.final_bucket_name
 
     item = {
         "id": request_id,
         "request_id": request_id,
         "team_name": bucket.team_name,
         "environment": bucket.environment,
-        "bucket_name": bucket.bucket_name,
+        "bucket_name": final_name,
         "purpose": bucket.purpose,
         "status": "created",
         "message": "Bucket request created successfully",
@@ -88,10 +98,10 @@ def create_bucket(bucket: BucketRequest):
 
     try:
         try:
-            s3.head_bucket(Bucket=bucket.bucket_name)
+            s3.head_bucket(Bucket=final_name)
             raise HTTPException(
                 status_code=409,
-                detail=f"Bucket '{bucket.bucket_name}' already exists",
+                detail=f"Bucket '{final_name}' already exists",
             )
         except ClientError as e:
             error_code = str(e.response.get("Error", {}).get("Code", ""))
@@ -99,17 +109,25 @@ def create_bucket(bucket: BucketRequest):
             if error_code not in ["404", "NoSuchBucket", "NotFound"]:
                 raise HTTPException(
                     status_code=409,
-                    detail=f"Bucket '{bucket.bucket_name}' already exists or is not available",
+                    detail=f"Bucket '{final_name}' already exists or is not available",
                 )
 
-        create_s3_bucket(bucket.bucket_name)
-        table.put_item(Item=item)
+        create_s3_bucket(final_name)
+        
+        try:
+            table.put_item(Item=item)
+        except ClientError as db_exc:
+            try:
+                delete_s3_bucket(final_name)
+            except Exception:
+                pass
+            raise db_exc
 
         return BucketResponse(
             request_id=request_id,
             status="created",
             message="Bucket created successfully",
-            bucket_name=bucket.bucket_name,
+            bucket_name=final_name,
             team_name=bucket.team_name,
             environment=bucket.environment,
         )
@@ -129,10 +147,20 @@ def create_bucket(bucket: BucketRequest):
 
 
 @app.get("/buckets")
-def get_buckets():
+def get_buckets(cursor: str = Query(None, description="Pagination cursor")):
     try:
-        response = table.scan()
-        return response.get("Items", [])
+        scan_kwargs = {}
+        if cursor:
+            scan_kwargs["ExclusiveStartKey"] = {"id": cursor}
+            
+        response = table.scan(**scan_kwargs)
+        items = response.get("Items", [])
+        last_evaluated_key = response.get("LastEvaluatedKey")
+        
+        return {
+            "items": items,
+            "next_cursor": last_evaluated_key.get("id") if last_evaluated_key else None
+        }
     except ClientError as exc:
         raise HTTPException(
             status_code=500,
@@ -166,6 +194,13 @@ def update_bucket(bucket_id: str, bucket: BucketRequest):
         if "Item" not in response:
             raise HTTPException(status_code=404, detail="Bucket not found")
 
+        existing_item = response["Item"]
+        if bucket.final_bucket_name != existing_item.get("bucket_name"):
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot change bucket_name after creation"
+            )
+
         table.update_item(
             Key={"id": bucket_id},
             UpdateExpression="""
@@ -182,7 +217,7 @@ def update_bucket(bucket_id: str, bucket: BucketRequest):
             ExpressionAttributeValues={
                 ":team_name": bucket.team_name,
                 ":environment": bucket.environment,
-                ":bucket_name": bucket.bucket_name,
+                ":bucket_name": bucket.final_bucket_name,
                 ":purpose": bucket.purpose,
                 ":status": "updated",
                 ":message": "Bucket request updated successfully",
